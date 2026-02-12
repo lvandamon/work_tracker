@@ -37,7 +37,7 @@ const path = require('path');
 
 // ==================== 配置区 ====================
 const OBSIDIAN_DIR = path.join(require('os').homedir(), 'Documents', 'Obsidian', 'CDX', 'Overtime');
-const STATE_FILE = path.join(require('os').homedir(), '.work_start_time');
+const STATE_FILE = path.join(__dirname, '.work_start_time');
 
 // ==================== 时间工具函数 ====================
 
@@ -60,8 +60,14 @@ const nowTime = () => {
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 };
 
-/** 获取今天日期 "YYYY-MM-DD" */
-const todayDate = () => new Date().toISOString().split('T')[0];
+/** 获取今天日期 "YYYY-MM-DD"（使用本地时区） */
+const todayDate = () => {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+};
 
 /** 校验 HH:MM 格式 */
 const isValidTime = (t) => /^\d{2}:\d{2}$/.test(t) && toMin(t) >= 0 && toMin(t) < 1440;
@@ -84,6 +90,17 @@ const OT_GAP         = 30;             // 正常下班到加班起算之间的�
 
 // ==================== 核心计算函数 ====================
 
+/** 根据有效上班时间计算满足 7.5h 工作所需的下班时间 */
+function calcRequiredEnd(effStart) {
+  if (effStart < LUNCH_START) {
+    return effStart + REQUIRED_WORK + LUNCH_DURATION;
+  } else if (effStart >= LUNCH_END) {
+    return effStart + REQUIRED_WORK;
+  } else {
+    return LUNCH_END + REQUIRED_WORK;
+  }
+}
+
 /**
  * 计算工作时间和加班时间
  *
@@ -105,20 +122,7 @@ function calcWorktime(clockIn, clockOut) {
     notes.push(`⚠️  迟到！打卡时间 ${clockIn} 超过弹性截止 09:10`);
   }
 
-  // 规则5: 满足 7.5h 工作时间所需的下班时间
-  // requiredEnd = effStart + 7.5h工作 + 1.5h午休 = effStart + 9h (540min)
-  // 但需要判断 effStart 是否在午休之后（虽然实际不太可能）
-  let requiredEnd;
-  if (effStart < LUNCH_START) {
-    // 正常情况：上班时间在午休前
-    requiredEnd = effStart + REQUIRED_WORK + LUNCH_DURATION;
-  } else if (effStart >= LUNCH_END) {
-    // 极端情况：上班在午休之后
-    requiredEnd = effStart + REQUIRED_WORK;
-  } else {
-    // 上班时间在午休期间 → 实际从午休结束开始
-    requiredEnd = LUNCH_END + REQUIRED_WORK;
-  }
+  const requiredEnd = calcRequiredEnd(effStart);
 
   // 规则2: 计算实际工作分钟数（扣除午休重叠部分）
   const overlapStart = Math.max(effStart, LUNCH_START);
@@ -164,19 +168,9 @@ function getObsidianPath(dateStr) {
   return path.join(OBSIDIAN_DIR, `${month}.md`);
 }
 
-/** Markdown 表头 */
-const TABLE_HEADER = [
-  '# 加班记录',
-  '',
-  '| 日期 | 上班 | 下班 | 工作时间(h) | 加班时间(h) | 备注 |',
-  '| :---: | :---: | :---: | :---: | :---: | :--- |',
-  ''
-].join('\n');
-
 /**
  * 写入或更新 Obsidian 记录
- * - 如果该日期已有记录，替换之
- * - 如果没有，追加
+ * 每次写入时重建完整文件：解析已有数据 → 更新/追加 → 按日期排序 → 生成 markdown
  */
 function writeToObsidian(dateStr, clockIn, clockOut, result) {
   const filePath = getObsidianPath(dateStr);
@@ -186,27 +180,81 @@ function writeToObsidian(dateStr, clockIn, clockOut, result) {
     fs.mkdirSync(OBSIDIAN_DIR, { recursive: true });
   }
 
-  const noteText = result.notes.length > 0 ? result.notes.map(n => n.replace(/\|/g, '/')).join('; ') : '';
-  const newRow = `| ${dateStr} | ${clockIn} | ${clockOut} | ${result.workHours.toFixed(1)} | ${result.overtimeHours.toFixed(1)} | ${noteText} |`;
-
-  if (!fs.existsSync(filePath)) {
-    // 文件不存在：创建文件 + 表头 + 数据行
-    fs.writeFileSync(filePath, TABLE_HEADER + newRow + '\n');
-  } else {
-    let content = fs.readFileSync(filePath, 'utf8');
-    const datePattern = new RegExp(`^\\| ${dateStr} \\|.*$`, 'm');
-
-    if (datePattern.test(content)) {
-      // 该日期已有记录 → 替换
-      content = content.replace(datePattern, newRow);
-      fs.writeFileSync(filePath, content);
-    } else {
-      // 追加新行
-      fs.appendFileSync(filePath, newRow + '\n');
+  // 解析已有记录
+  const records = new Map();
+  if (fs.existsSync(filePath)) {
+    const lines = fs.readFileSync(filePath, 'utf8').split('\n');
+    for (const line of lines) {
+      const m = line.match(/^\|\s*(\d{4}-\d{2}-\d{2})\s*\|\s*(\S+)\s*\|\s*(\S+)\s*\|\s*([\d.]+)\s*\|\s*([\d.]+)\s*\|\s*(.*?)\s*\|$/);
+      if (m) {
+        records.set(m[1], { date: m[1], inTime: m[2], outTime: m[3], work: parseFloat(m[4]), ot: parseFloat(m[5]), note: m[6].trim() });
+      }
     }
   }
 
+  // 更新或追加当前记录
+  const noteText = result.notes.length > 0 ? result.notes.map(n => n.replace(/\|/g, '／')).join('; ') : '';
+  records.set(dateStr, { date: dateStr, inTime: clockIn, outTime: clockOut, work: result.workHours, ot: result.overtimeHours, note: noteText });
+
+  // 按日期排序
+  const sorted = [...records.values()].sort((a, b) => a.date.localeCompare(b.date));
+
+  // 汇总统计
+  let totalWork = 0, totalOT = 0, lateDays = 0;
+  for (const r of sorted) {
+    totalWork += r.work;
+    totalOT += r.ot;
+    if (r.note.includes('迟到')) lateDays++;
+  }
+
+  // 生成 markdown
+  const month = dateStr.slice(0, 7);
+  const lines = [];
+  lines.push(`# ${month} 加班记录`);
+  lines.push('');
+  lines.push('| 日期 | 上班 | 下班 | 工时 | 加班 | 备注 |');
+  lines.push('| :---: | :---: | :---: | :---: | :---: | :--- |');
+  for (const r of sorted) {
+    const otMark = r.ot > 0 ? ` 🔥` : '';
+    lines.push(`| ${r.date} | ${r.inTime} | ${r.outTime} | ${r.work.toFixed(1)} | ${r.ot.toFixed(1)}${otMark} | ${r.note} |`);
+  }
+  lines.push('');
+  lines.push('---');
+  lines.push('');
+  lines.push(`> **出勤 ${sorted.length} 天 ｜ 工时 ${totalWork.toFixed(1)}h ｜ 加班 ${totalOT.toFixed(1)}h**${lateDays > 0 ? ` ｜ 迟到 ${lateDays} 次` : ''}`);
+  lines.push('');
+
+  fs.writeFileSync(filePath, lines.join('\n'));
   return filePath;
+}
+
+// ==================== 公共辅助 ====================
+
+/** 读取上班打卡状态文件（兼容旧纯文本格式） */
+function readState() {
+  try {
+    return JSON.parse(fs.readFileSync(STATE_FILE, 'utf8'));
+  } catch {
+    const raw = fs.readFileSync(STATE_FILE, 'utf8').trim();
+    return { time: raw, date: todayDate() };
+  }
+}
+
+/** 输出打卡结果 */
+function printResult(title, dateStr, clockIn, clockOut, result, filePath) {
+  console.log('');
+  console.log(`━━━━━━━ ${title} ━━━━━━`);
+  console.log(`📅 日期:       ${dateStr}`);
+  console.log(`🕐 上班:       ${clockIn}`);
+  console.log(`🕕 下班:       ${clockOut}`);
+  console.log(`💼 工作时间:   ${result.workHours.toFixed(1)} 小时`);
+  console.log(`🔥 加班时间:   ${result.overtimeHours.toFixed(1)} 小时`);
+  if (result.notes.length > 0) {
+    result.notes.forEach(n => console.log(`   ${n}`));
+  }
+  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  console.log(`🚀 已同步至: ${filePath}`);
+  console.log('');
 }
 
 // ==================== 命令实现 ====================
@@ -233,14 +281,7 @@ function cmdIn(timeArg) {
 
   // 显示预计下班信息
   const effStart = Math.max(min, WORK_START);
-  let requiredEnd;
-  if (effStart < LUNCH_START) {
-    requiredEnd = effStart + REQUIRED_WORK + LUNCH_DURATION;
-  } else if (effStart >= LUNCH_END) {
-    requiredEnd = effStart + REQUIRED_WORK;
-  } else {
-    requiredEnd = LUNCH_END + REQUIRED_WORK;
-  }
+  const requiredEnd = calcRequiredEnd(effStart);
   const otThreshold = requiredEnd + OT_GAP;
 
   console.log(`📋 预计正常下班: ${toTime(requiredEnd)}`);
@@ -258,15 +299,7 @@ function cmdOut(timeArg) {
     process.exit(1);
   }
 
-  let stateData;
-  try {
-    stateData = JSON.parse(fs.readFileSync(STATE_FILE, 'utf8'));
-  } catch {
-    // 兼容旧格式（纯文本时间）
-    const raw = fs.readFileSync(STATE_FILE, 'utf8').trim();
-    stateData = { time: raw, date: todayDate() };
-  }
-
+  const stateData = readState();
   const clockIn  = stateData.time;
   const dateStr  = stateData.date || todayDate();
   const clockOut = timeArg || nowTime();
@@ -287,23 +320,7 @@ function cmdOut(timeArg) {
   // 同步到 Obsidian
   const filePath = writeToObsidian(dateStr, clockIn, clockOut, result);
 
-  // 输出结果
-  console.log('');
-  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-  console.log(`📅 日期:       ${dateStr}`);
-  console.log(`🕐 上班:       ${clockIn}`);
-  console.log(`🕕 下班:       ${clockOut}`);
-  console.log(`💼 工作时间:   ${result.workHours.toFixed(1)} 小时`);
-  console.log(`🔥 加班时间:   ${result.overtimeHours.toFixed(1)} 小时`);
-  if (result.notes.length > 0) {
-    result.notes.forEach(n => console.log(`   ${n}`));
-  }
-  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-  console.log(`🚀 已同步至: ${filePath}`);
-  console.log('');
-
-  // 清理状态文件
-  fs.unlinkSync(STATE_FILE);
+  printResult('🕕 下班打卡', dateStr, clockIn, clockOut, result, filePath);
 }
 
 /** work status —— 查看今日状态 */
@@ -314,28 +331,13 @@ function cmdStatus() {
     return;
   }
 
-  let stateData;
-  try {
-    stateData = JSON.parse(fs.readFileSync(STATE_FILE, 'utf8'));
-  } catch {
-    const raw = fs.readFileSync(STATE_FILE, 'utf8').trim();
-    stateData = { time: raw, date: todayDate() };
-  }
-
+  const stateData = readState();
   const clockIn = stateData.time;
   const dateStr = stateData.date || todayDate();
   const min = toMin(clockIn);
   const effStart = Math.max(min, WORK_START);
 
-  // 计算预计时间
-  let requiredEnd;
-  if (effStart < LUNCH_START) {
-    requiredEnd = effStart + REQUIRED_WORK + LUNCH_DURATION;
-  } else if (effStart >= LUNCH_END) {
-    requiredEnd = effStart + REQUIRED_WORK;
-  } else {
-    requiredEnd = LUNCH_END + REQUIRED_WORK;
-  }
+  const requiredEnd = calcRequiredEnd(effStart);
   const otThreshold = requiredEnd + OT_GAP;
 
   const currentMin = toMin(nowTime());
@@ -408,20 +410,7 @@ function cmdFix(dateStr, clockIn, clockOut) {
   // 同步到 Obsidian
   const filePath = writeToObsidian(dateStr, clockIn, clockOut, result);
 
-  // 输出结果
-  console.log('');
-  console.log('━━━━━━━ 📝 补录/修正记录 ━━━━━━');
-  console.log(`📅 日期:       ${dateStr}`);
-  console.log(`🕐 上班:       ${clockIn}`);
-  console.log(`🕕 下班:       ${clockOut}`);
-  console.log(`💼 工作时间:   ${result.workHours.toFixed(1)} 小时`);
-  console.log(`🔥 加班时间:   ${result.overtimeHours.toFixed(1)} 小时`);
-  if (result.notes.length > 0) {
-    result.notes.forEach(n => console.log(`   ${n}`));
-  }
-  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-  console.log(`🚀 已同步至: ${filePath}`);
-  console.log('');
+  printResult('📝 补录/修正记录', dateStr, clockIn, clockOut, result, filePath);
 }
 
 /** work summary YYYY-MM —— 月度汇总 */
@@ -472,6 +461,9 @@ function cmdSummary(monthStr) {
     console.log(`📋 ${monthStr} 暂无有效记录`);
     return;
   }
+
+  // 按日期排序
+  dataRows.sort((a, b) => a.date.localeCompare(b.date));
 
   // 输出汇总
   console.log('');
