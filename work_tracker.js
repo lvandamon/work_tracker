@@ -185,7 +185,7 @@ function writeToObsidian(dateStr, clockIn, clockOut, result) {
   if (fs.existsSync(filePath)) {
     const lines = fs.readFileSync(filePath, 'utf8').split('\n');
     for (const line of lines) {
-      const m = line.match(/^\|\s*(\d{4}-\d{2}-\d{2})\s*\|\s*(\S+)\s*\|\s*(\S+)\s*\|\s*([\d.]+)\s*\|\s*([\d.]+)\s*\|\s*(.*?)\s*\|$/);
+      const m = line.match(/^\|\s*(\d{4}-\d{2}-\d{2})\s*\|\s*(\S+)\s*\|\s*(\S+)\s*\|\s*([\d.]+)\s*\|\s*([\d.]+)[^|]*\|\s*(.*?)\s*\|$/);
       if (m) {
         records.set(m[1], { date: m[1], inTime: m[2], outTime: m[3], work: parseFloat(m[4]), ot: parseFloat(m[5]), note: m[6].trim() });
       }
