@@ -69,6 +69,12 @@ const todayDate = () => {
   return `${y}-${m}-${day}`;
 };
 
+/** 将 "YYYY-MM-DD" 转为星期几（返回 "一"~"日"） */
+const toWeekday = (dateStr) => {
+  const day = new Date(dateStr + 'T00:00:00').getDay();
+  return ['日', '一', '二', '三', '四', '五', '六'][day];
+};
+
 /** 校验 HH:MM 格式 */
 const isValidTime = (t) => /^\d{2}:\d{2}$/.test(t) && toMin(t) >= 0 && toMin(t) < 1440;
 
@@ -206,7 +212,7 @@ function writeToObsidian(dateStr, clockIn, clockOut, result) {
   if (fs.existsSync(filePath)) {
     const lines = fs.readFileSync(filePath, 'utf8').split('\n');
     for (const line of lines) {
-      const m = line.match(/^\|\s*(\d{4}-\d{2}-\d{2})\s*\|\s*(\S+)\s*\|\s*(\S+)\s*\|\s*([\d.]+)\s*\|\s*([\d.]+)[^|]*\|\s*(.*?)\s*\|$/);
+      const m = line.match(/^\|\s*(\d{4}-\d{2}-\d{2})\s*\|(?:\s*周[^\|]*\|)?\s*(\S+)\s*\|\s*(\S+)\s*\|\s*([\d.]+)\s*\|\s*([\d.]+)[^|]*\|\s*(.*?)\s*\|$/);
       if (m) {
         records.set(m[1], { date: m[1], inTime: m[2], outTime: m[3], work: parseFloat(m[4]), ot: parseFloat(m[5]), note: m[6].trim() });
       }
@@ -233,11 +239,11 @@ function writeToObsidian(dateStr, clockIn, clockOut, result) {
   const lines = [];
   lines.push(`# ${month} 加班记录`);
   lines.push('');
-  lines.push('| 日期 | 上班 | 下班 | 工时 | 加班 | 备注 |');
-  lines.push('| :---: | :---: | :---: | :---: | :---: | :--- |');
+  lines.push('| 日期 | 星期 | 上班 | 下班 | 工时 | 加班 | 备注 |');
+  lines.push('| :---: | :---: | :---: | :---: | :---: | :---: | :--- |');
   for (const r of sorted) {
     const otMark = r.ot > 0 ? ` 🔥` : '';
-    lines.push(`| ${r.date} | ${r.inTime} | ${r.outTime} | ${r.work.toFixed(1)} | ${r.ot.toFixed(1)}${otMark} | ${r.note} |`);
+    lines.push(`| ${r.date} | 周${toWeekday(r.date)} | ${r.inTime} | ${r.outTime} | ${r.work.toFixed(1)} | ${r.ot.toFixed(1)}${otMark} | ${r.note} |`);
   }
   lines.push('');
   lines.push('---');
@@ -265,7 +271,7 @@ function readState() {
 function printResult(title, dateStr, clockIn, clockOut, result, filePath) {
   console.log('');
   console.log(`━━━━━━━ ${title} ━━━━━━`);
-  console.log(`📅 日期:       ${dateStr}`);
+  console.log(`📅 日期:       ${dateStr} 周${toWeekday(dateStr)}`);
   console.log(`🕐 上班:       ${clockIn}`);
   console.log(`🕕 下班:       ${clockOut}`);
   console.log(`💼 工作时间:   ${result.workHours.toFixed(1)} 小时`);
@@ -274,7 +280,7 @@ function printResult(title, dateStr, clockIn, clockOut, result, filePath) {
     result.notes.forEach(n => console.log(`   ${n}`));
   }
   if (result.hint) {
-    console.log(`   ${result.hint}`);
+    console.log(`${result.hint}`);
   }
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
   console.log(`🚀 已同步至: ${filePath}`);
@@ -386,10 +392,10 @@ function cmdStatus() {
 
   console.log('');
   console.log('━━━━━━━ 📋 今日工作状态 ━━━━━━━');
-  console.log(`📅 日期:         ${dateStr}`);
+  console.log(`📅 日期:         ${dateStr} 周${toWeekday(dateStr)}`);
   console.log(`🕐 上班打卡:     ${clockIn}`);
   console.log(`🏁 满足7.5h下班: ${toTime(requiredEnd)}`);
-  console.log(`⏰ 加班起算时间:  ${toTime(otThreshold)}`);
+  console.log(`⏰ 加班起算时间: ${toTime(otThreshold)}`);
 
   if (effStart > FLEX_DEADLINE) {
     console.log(`⚠️  迟到！超过弹性截止时间 09:10`);
@@ -398,7 +404,7 @@ function cmdStatus() {
   // 如果现在还在上班，模拟计算当前已工作时间
   if (isWorking) {
     const simResult = calcWorktime(clockIn, nowTime());
-    console.log(`⏱️  已工作:       ${simResult.workHours.toFixed(1)} 小时`);
+    console.log(`⏱️ 已工作:       ${simResult.workHours.toFixed(1)} 小时`);
     if (currentMin > otThreshold) {
       console.log(`🔥 已加班:       ${simResult.overtimeHours.toFixed(1)} 小时`);
     } else if (currentMin > requiredEnd) {
@@ -411,7 +417,7 @@ function cmdStatus() {
       console.log(`⏳ 距正常下班:   还有 ${remainToEnd} 分钟`);
     }
     if (simResult.hint) {
-      console.log(`   ${simResult.hint}`);
+      console.log(`${simResult.hint}`);
     }
   }
 
@@ -488,7 +494,7 @@ function cmdSummary(monthStr) {
 
   for (const line of lines) {
     // 匹配数据行: | 2026-02-10 | 08:30 | 19:00 | 7.5 | 1.0 | ... |
-    const match = line.match(/^\|\s*(\d{4}-\d{2}-\d{2})\s*\|\s*(\S+)\s*\|\s*(\S+)\s*\|\s*([\d.]+)\s*\|\s*([\d.]+)[^|]*\|/);
+    const match = line.match(/^\|\s*(\d{4}-\d{2}-\d{2})\s*\|(?:\s*周[^\|]*\|)?\s*(\S+)\s*\|\s*(\S+)\s*\|\s*([\d.]+)\s*\|\s*([\d.]+)[^|]*\|/);
     if (match) {
       const [, date, inTime, outTime, work, ot] = match;
       const workH = parseFloat(work);
@@ -515,11 +521,11 @@ function cmdSummary(monthStr) {
   console.log('');
 
   // 逐日详情
-  console.log('| 日期       | 上班  | 下班  | 工作(h) | 加班(h) |');
-  console.log('| :--------: | :---: | :---: | :-----: | :-----: |');
+  console.log('| 日期          | 上班  | 下班  | 工作(h) | 加班(h) |');
+  console.log('| :-----------: | :---: | :---: | :-----: | :-----: |');
   for (const row of dataRows) {
     const otDisplay = row.otH > 0 ? `${row.otH.toFixed(1)} 🔥` : row.otH.toFixed(1);
-    console.log(`| ${row.date} | ${row.inTime} | ${row.outTime} | ${row.workH.toFixed(1)}    | ${otDisplay}    |`);
+    console.log(`| ${row.date} 周${toWeekday(row.date)} | ${row.inTime} | ${row.outTime} | ${row.workH.toFixed(1)}    | ${otDisplay}    |`);
   }
 
   console.log('');
@@ -561,15 +567,15 @@ switch (action) {
   work in  [HH:MM]                   上班打卡
   work out [HH:MM]                   下班打卡
   work status                        查看今日状态
-  work fix  YYYY-MM-DD HH:MM HH:MM  补打/修正某天记录
+  work fix  YYYY-MM-DD HH:MM HH:MM   补打/修正某天记录
   work summary [YYYY-MM]             月度加班汇总
 
 示例:
-  work in                  使用当前时间打卡
-  work in 08:45            手动指定上班时间
-  work out 19:30           手动指定下班时间
-  work fix 2026-02-10 08:30 20:00
-  work summary 2026-02
+  work in                            使用当前时间打卡
+  work in 08:45                      手动指定上班时间
+  work out 19:30                     手动指定下班时间
+  work fix 2026-02-10 08:30 20:00    修正某天记录
+  work summary 2026-02               查看2026年2月加班汇总
 `);
     break;
 }
