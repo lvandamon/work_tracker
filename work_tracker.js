@@ -83,6 +83,7 @@ const isValidMonth = (m) => /^\d{4}-\d{2}$/.test(m);
 // --- 工时规则 ---
 const WORK_START     = toMin('08:30');  // 最早上班时间，早于此按此时间计算
 const FLEX_DEADLINE  = toMin('09:10');  // 弹性打卡截止，超过算迟到
+const LATE_WARN      = toMin('12:00');  // 上班打卡偏晚提醒阈值
 const LUNCH_START    = toMin('11:30');  // 午休开始
 const LUNCH_END      = toMin('13:00');  // 午休结束
 const LUNCH_DURATION = LUNCH_END - LUNCH_START; // 午休时长（派生值，90 分钟）
@@ -292,7 +293,7 @@ function cmdIn(timeArg) {
   }
 
   const min = toMin(time);
-  if (min > toMin('12:00')) {
+  if (min > LATE_WARN) {
     console.warn(`⚠️  注意: 上班时间 ${time} 看起来偏晚，确认是上班打卡吗？`);
   }
 
@@ -327,6 +328,13 @@ function cmdOut(timeArg) {
   const dateStr  = stateData.date || todayDate();
   const clockOut = timeArg || nowTime();
 
+  // 检测过期状态
+  if (dateStr !== todayDate()) {
+    console.warn(`⚠️  上班记录是 ${dateStr} 的，今天是 ${todayDate()}`);
+    console.warn('   请使用 work fix 补录，或 work in 重新打卡');
+    process.exit(1);
+  }
+
   if (!isValidTime(clockOut)) {
     console.error(`❌ 无效的时间格式: "${timeArg}"，请使用 HH:MM 格式`);
     process.exit(1);
@@ -357,6 +365,16 @@ function cmdStatus() {
   const stateData = readState();
   const clockIn = stateData.time;
   const dateStr = stateData.date || todayDate();
+
+  // 检测过期状态（昨天打卡忘记下班）
+  if (dateStr !== todayDate()) {
+    console.log(`⚠️  检测到 ${dateStr} 的上班记录，但今天是 ${todayDate()}`);
+    console.log('   可能昨天忘记下班打卡，请使用:');
+    console.log(`   work fix ${dateStr} ${clockIn} HH:MM  补录昨天下班`);
+    console.log('   work in                          重新打今天上班卡');
+    return;
+  }
+
   const min = toMin(clockIn);
   const effStart = Math.max(min, WORK_START);
 
@@ -470,7 +488,7 @@ function cmdSummary(monthStr) {
 
   for (const line of lines) {
     // 匹配数据行: | 2026-02-10 | 08:30 | 19:00 | 7.5 | 1.0 | ... |
-    const match = line.match(/^\|\s*(\d{4}-\d{2}-\d{2})\s*\|\s*(\S+)\s*\|\s*(\S+)\s*\|\s*([\d.]+)\s*\|\s*([\d.]+)\s*\|/);
+    const match = line.match(/^\|\s*(\d{4}-\d{2}-\d{2})\s*\|\s*(\S+)\s*\|\s*(\S+)\s*\|\s*([\d.]+)\s*\|\s*([\d.]+)[^|]*\|/);
     if (match) {
       const [, date, inTime, outTime, work, ot] = match;
       const workH = parseFloat(work);

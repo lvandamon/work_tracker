@@ -17,7 +17,8 @@
       "Bash($W out 18:22)",
       "Bash($W out 18:52)",
       "Bash($W out 18:30)",
-      "Bash($W out 18:15)"
+      "Bash($W out 18:15)",
+      "Bash(echo:*)"
     ]
   }
 }
