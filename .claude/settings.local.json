@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(source:*)",
+      "Bash(node /Users/lvandamon/Developer/myWorks/work_tracker/work_tracker.js:*)",
+      "Bash(chmod:*)"
+    ]
+  }
+}

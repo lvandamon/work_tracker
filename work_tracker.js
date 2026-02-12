@@ -25,7 +25,7 @@
  *   3. 加班起算时间 = 正常下班时间 + 30分钟（随弹性打卡后移）
  *   4. 加班时间按 0.5 小时向下取整
  *   5. 弹性打卡 8:30-9:10，超过 9:10 算迟到，但仍需满足 7.5h 工作时长
- *   6. 加班不满 1 小时不计为加班
+ *   6. 加班满 0.5 小时即计为加班
  *
  * Obsidian 同步:
  *   数据按月存储到 ~/Documents/Obsidian/CDX/Overtime/YYYY-MM.md
@@ -146,8 +146,8 @@ function calcWorktime(clockIn, clockOut) {
     const rawOTMin = outMin - otThreshold;
     const rawOTHours = rawOTMin / 60;
 
-    // 规则6: 不满 1 小时不算加班
-    if (rawOTHours >= 1) {
+    // 规则6: 满 0.5 小时即算加班
+    if (rawOTHours >= 0.5) {
       // 规则4: 按 0.5 小时向下取整
       overtimeHours = Math.floor(rawOTHours * 2) / 2;
     }
