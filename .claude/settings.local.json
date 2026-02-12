@@ -3,7 +3,21 @@
     "allow": [
       "Bash(source:*)",
       "Bash(node /Users/lvandamon/Developer/myWorks/work_tracker/work_tracker.js:*)",
-      "Bash(chmod:*)"
+      "Bash(chmod:*)",
+      "Bash(WORK=\"node /Users/lvandamon/Developer/myWorks/work_tracker/work_tracker.js\")",
+      "Bash($WORK in 08:3)",
+      "Bash($WORK out 17:52)",
+      "Bash($WORK out 18:22)",
+      "Bash($WORK out 18:52)",
+      "Bash($WORK out 18:30)",
+      "Bash($WORK out 18:15)",
+      "Bash(W=\"node /Users/lvandamon/Developer/myWorks/work_tracker/work_tracker.js\")",
+      "Bash($W in 08:3)",
+      "Bash($W out 17:52)",
+      "Bash($W out 18:22)",
+      "Bash($W out 18:52)",
+      "Bash($W out 18:30)",
+      "Bash($W out 18:15)"
     ]
   }
 }

@@ -35,9 +35,9 @@
 const fs = require('fs');
 const path = require('path');
 
-// ==================== 配置区 ====================
-const OBSIDIAN_DIR = path.join(require('os').homedir(), 'Documents', 'Obsidian', 'CDX', 'Overtime');
-const STATE_FILE = path.join(__dirname, '.work_start_time');
+// ==================== 配置区：路径 ====================
+const OBSIDIAN_DIR = path.join(require('os').homedir(), 'Documents', 'Obsidian', 'CDX', 'Overtime'); // Obsidian 加班记录存储目录
+const STATE_FILE   = path.join(__dirname, '.work_start_time'); // 上班打卡状态文件
 
 // ==================== 时间工具函数 ====================
 
@@ -78,15 +78,20 @@ const isValidDate = (d) => /^\d{4}-\d{2}-\d{2}$/.test(d) && !isNaN(Date.parse(d)
 /** 校验 YYYY-MM 格式 */
 const isValidMonth = (m) => /^\d{4}-\d{2}$/.test(m);
 
-// ==================== 常量定义 ====================
+// ==================== 配置区：规则 ====================
 
-const WORK_START     = toMin('08:30');  // 最早上班时间
-const FLEX_DEADLINE  = toMin('09:10');  // 弹性打卡截止
+// --- 工时规则 ---
+const WORK_START     = toMin('08:30');  // 最早上班时间，早于此按此时间计算
+const FLEX_DEADLINE  = toMin('09:10');  // 弹性打卡截止，超过算迟到
 const LUNCH_START    = toMin('11:30');  // 午休开始
 const LUNCH_END      = toMin('13:00');  // 午休结束
-const LUNCH_DURATION = LUNCH_END - LUNCH_START; // 午休时长 = 90分钟
-const REQUIRED_WORK  = 450;            // 7.5小时 = 450分钟
-const OT_GAP         = 30;             // 正常下班到加班起算之间的间隔（分钟）
+const LUNCH_DURATION = LUNCH_END - LUNCH_START; // 午休时长（派生值，90 分钟）
+const REQUIRED_WORK  = 450;            // 每日工作时长：7.5 小时 = 450 分钟
+
+// --- 加班规则 ---
+const OT_GAP         = 30;             // 正常下班到加班起算的间隔（分钟）
+const OT_MIN_HOURS   = 0.5;            // 加班最低门槛（小时），不足则不计为加班
+const OT_HINT_GAP    = 15;             // 提示阈值（分钟），距下一个 0.5h 整点 ≤ 此值时提示
 
 // ==================== 核心计算函数 ====================
 
@@ -146,18 +151,33 @@ function calcWorktime(clockIn, clockOut) {
 
   // 规则4 & 6: 计算加班时间
   let overtimeHours = 0;
+  let hint = '';
   if (outMin > otThreshold) {
     const rawOTMin = outMin - otThreshold;
     const rawOTHours = rawOTMin / 60;
 
-    // 规则6: 满 0.5 小时即算加班
-    if (rawOTHours >= 0.5) {
+    // 规则6: 满 OT_MIN_HOURS 即算加班
+    if (rawOTHours >= OT_MIN_HOURS) {
       // 规则4: 按 0.5 小时向下取整
       overtimeHours = Math.floor(rawOTHours * 2) / 2;
     }
+
+    // 提示：距下一个 0.5h 加班整点 ≤10 分钟
+    const nextHalfHour = Math.ceil(rawOTMin / 30) * 30;
+    const gap = nextHalfHour - rawOTMin;
+    if (gap > 0 && gap <= OT_HINT_GAP) {
+      const nextOTHours = (nextHalfHour / 60).toFixed(1);
+      hint = `💡 再待 ${gap} 分钟可凑满 ${nextOTHours}h 加班`;
+    }
+  } else {
+    // 还没到加班起算点
+    const gap = otThreshold - outMin;
+    if (gap > 0 && gap <= OT_HINT_GAP) {
+      hint = `💡 再待 ${gap} 分钟开始计算 0.5h 加班`;
+    }
   }
 
-  return { workHours, overtimeHours, isLate, notes };
+  return { workHours, overtimeHours, isLate, notes, hint };
 }
 
 // ==================== Obsidian 文件操作 ====================
@@ -251,6 +271,9 @@ function printResult(title, dateStr, clockIn, clockOut, result, filePath) {
   console.log(`🔥 加班时间:   ${result.overtimeHours.toFixed(1)} 小时`);
   if (result.notes.length > 0) {
     result.notes.forEach(n => console.log(`   ${n}`));
+  }
+  if (result.hint) {
+    console.log(`   ${result.hint}`);
   }
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
   console.log(`🚀 已同步至: ${filePath}`);
@@ -368,6 +391,9 @@ function cmdStatus() {
     } else {
       const remainToEnd = requiredEnd - currentMin;
       console.log(`⏳ 距正常下班:   还有 ${remainToEnd} 分钟`);
+    }
+    if (simResult.hint) {
+      console.log(`   ${simResult.hint}`);
     }
   }
 
