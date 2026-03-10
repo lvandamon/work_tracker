@@ -81,6 +81,37 @@ const toWeekday = (dateStr) => {
   return ['日', '一', '二', '三', '四', '五', '六'][day];
 };
 
+/** 计算字符串在终端中的显示宽度（中文/emoji 占 2 列） */
+function displayWidth(str) {
+  let w = 0;
+  for (const ch of str) {
+    const c = ch.codePointAt(0);
+    if (
+      (c >= 0x1100 && c <= 0x115F) ||
+      (c >= 0x2E80 && c <= 0x303E) ||
+      (c >= 0x3040 && c <= 0x9FFF) ||
+      (c >= 0xF900 && c <= 0xFAFF) ||
+      (c >= 0xFE30 && c <= 0xFE4F) ||
+      (c >= 0xFF00 && c <= 0xFF60) ||
+      (c >= 0xFFE0 && c <= 0xFFE6) ||
+      (c >= 0x20000 && c <= 0x2FA1F) ||
+      (c >= 0x1F000 && c <= 0x1FAFF)
+    ) {
+      w += 2;
+    } else if (c >= 0xFE00 && c <= 0xFE0F) {
+      // variation selectors - zero width
+    } else {
+      w += 1;
+    }
+  }
+  return w;
+}
+
+/** 按显示宽度右补空格对齐 */
+function padEnd(str, targetWidth) {
+  return str + ' '.repeat(Math.max(0, targetWidth - displayWidth(str)));
+}
+
 /** 校验 HH:MM 格式 */
 const isValidTime = (t) => /^\d{2}:\d{2}$/.test(t) && toMin(t) >= 0 && toMin(t) < 1440;
 
@@ -482,7 +513,7 @@ function cmdStatus() {
   // 如果现在还在上班，模拟计算当前已工作时间
   if (isWorking) {
     const simResult = calcWorktime(clockIn, nowTime());
-    console.log(`⏱️  已工作:       ${simResult.workHours.toFixed(1)} 小时`);
+    console.log(`⏱️ 已工作:       ${simResult.workHours.toFixed(1)} 小时`);
     if (currentMin > otThreshold) {
       console.log(`🔥 已加班:       ${simResult.overtimeHours.toFixed(1)} 小时`);
     } else if (currentMin > requiredEnd) {
@@ -659,13 +690,31 @@ function cmdSummary(monthStr) {
   console.log(`━━━━━━━ 📊 ${monthStr} 月度汇总 ━━━━━━━`);
   console.log('');
 
-  // 逐日详情
-  console.log('| 日期          | 上班  | 下班  | 工作(h) | 加班(h) | 请假(h) |');
-  console.log('| :-----------: | :---: | :---: | :-----: | :-----: | :-----: |');
-  for (const row of dataRows) {
-    const otDisplay = row.ot > 0 ? `${row.ot.toFixed(1)} 🔥` : row.ot.toFixed(1);
-    const leaveDisplay = (row.leave || 0) > 0 ? `${row.leave.toFixed(1)} 🏖 ${row.leaveType || ''}` : (row.leave || 0).toFixed(1);
-    console.log(`| ${row.date} 周${toWeekday(row.date)} | ${row.inTime} | ${row.outTime} | ${row.work.toFixed(1)}    | ${otDisplay}    | ${leaveDisplay}    |`);
+  // 构建表格单元格
+  const headers = ['日期', '上班', '下班', '工作(h)', '加班(h)', '请假(h)'];
+  const tableRows = dataRows.map(row => {
+    const otCell = row.ot > 0 ? `${row.ot.toFixed(1)} 🔥` : row.ot.toFixed(1);
+    const leaveCell = (row.leave || 0) > 0 ? `${row.leave.toFixed(1)} 🏖 ${row.leaveType || ''}` : (row.leave || 0).toFixed(1);
+    return [
+      `${row.date} 周${toWeekday(row.date)}`,
+      row.inTime, row.outTime,
+      row.work.toFixed(1), otCell, leaveCell,
+    ];
+  });
+
+  // 计算各列最大显示宽度
+  const colW = headers.map((h, i) => {
+    const maxData = tableRows.reduce((mx, r) => Math.max(mx, displayWidth(r[i])), 0);
+    return Math.max(displayWidth(h), maxData);
+  });
+
+  // 输出表头和分隔线
+  console.log('| ' + headers.map((h, i) => padEnd(h, colW[i])).join(' | ') + ' |');
+  console.log('| ' + colW.map(w => '-'.repeat(w)).join(' | ') + ' |');
+
+  // 输出数据行
+  for (const cells of tableRows) {
+    console.log('| ' + cells.map((c, i) => padEnd(c, colW[i])).join(' | ') + ' |');
   }
 
   console.log('');
@@ -673,9 +722,9 @@ function cmdSummary(monthStr) {
   console.log(`💼 总工作时间:   ${totalWork.toFixed(1)} 小时`);
   console.log(`🔥 总加班时间:   ${totalOT.toFixed(1)} 小时`);
   if (totalLeave > 0) {
-    console.log(`🏖 总请假时间:   ${totalLeave.toFixed(1)} 小时`);
+    console.log(`🏖  总请假时间:   ${totalLeave.toFixed(1)} 小时`);
     for (const [type, hours] of Object.entries(leaveByType)) {
-      console.log(`   ${type}: ${hours.toFixed(1)} 小时`);
+      console.log(`🏖  ${type}:         ${hours.toFixed(1)} 小时`);
     }
   }
   if (lateDays > 0) {
