@@ -321,11 +321,12 @@ function writeToObsidian(dateStr, clockIn, clockOut, result) {
   const sorted = [...records.values()].sort((a, b) => a.date.localeCompare(b.date));
 
   // 汇总统计
-  let totalWork = 0, totalOT = 0, totalLeave = 0, lateDays = 0;
+  let totalWork = 0, totalOT = 0, totalLeave = 0, lateDays = 0, otDays = 0;
   const leaveByType = {};
   for (const r of sorted) {
     totalWork += r.work;
     totalOT += r.ot;
+    if (r.ot > 0) otDays++;
     totalLeave += r.leave || 0;
     if (r.leaveType) {
       leaveByType[r.leaveType] = (leaveByType[r.leaveType] || 0) + (r.leave || 0);
@@ -353,7 +354,7 @@ function writeToObsidian(dateStr, clockIn, clockOut, result) {
     const typeDetail = Object.entries(leaveByType).map(([t, h]) => `${t} ${h.toFixed(1)}h`).join('、');
     leaveSuffix = ` ｜ 请假 ${totalLeave.toFixed(1)}h（${typeDetail}）`;
   }
-  lines.push(`> **出勤 ${sorted.length} 天 ｜ 工时 ${totalWork.toFixed(1)}h ｜ 加班 ${totalOT.toFixed(1)}h${leaveSuffix}**${lateDays > 0 ? ` ｜ 迟到 ${lateDays} 次` : ''}`);
+  lines.push(`> **出勤 ${sorted.length} 天 ｜ 工时 ${totalWork.toFixed(1)}h ｜ 加班 ${totalOT.toFixed(1)}h（${otDays} 次）${leaveSuffix}**${lateDays > 0 ? ` ｜ 迟到 ${lateDays} 次` : ''}`);
   lines.push('');
 
   fs.writeFileSync(filePath, lines.join('\n'));
@@ -660,6 +661,7 @@ function cmdSummary(monthStr) {
   let totalLeave = 0;
   let totalDays = 0;
   let lateDays = 0;
+  let otDays = 0;
   const leaveByType = {};
 
   for (const line of lines) {
@@ -668,6 +670,7 @@ function cmdSummary(monthStr) {
       dataRows.push(r);
       totalWork += r.work;
       totalOT   += r.ot;
+      if (r.ot > 0) otDays++;
       totalLeave += r.leave || 0;
       totalDays++;
       if (r.note.includes('迟到')) lateDays++;
@@ -720,7 +723,7 @@ function cmdSummary(monthStr) {
   console.log('');
   console.log(`📅 出勤天数:     ${totalDays} 天`);
   console.log(`💼 总工作时间:   ${totalWork.toFixed(1)} 小时`);
-  console.log(`🔥 总加班时间:   ${totalOT.toFixed(1)} 小时`);
+  console.log(`🔥 总加班时间:   ${totalOT.toFixed(1)} 小时（${otDays} 次）`);
   if (totalLeave > 0) {
     console.log(`🏖  总请假时间:   ${totalLeave.toFixed(1)} 小时`);
     for (const [type, hours] of Object.entries(leaveByType)) {
