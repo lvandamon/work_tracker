@@ -323,10 +323,11 @@ function writeToObsidian(dateStr, clockIn, clockOut, result) {
   // 汇总统计
   let totalWork = 0, totalOT = 0, totalLeave = 0, lateDays = 0, otDays = 0;
   const leaveByType = {};
+  const otDates = [];
   for (const r of sorted) {
     totalWork += r.work;
     totalOT += r.ot;
-    if (r.ot > 0) otDays++;
+    if (r.ot > 0) { otDays++; otDates.push(r.date); }
     totalLeave += r.leave || 0;
     if (r.leaveType) {
       leaveByType[r.leaveType] = (leaveByType[r.leaveType] || 0) + (r.leave || 0);
@@ -355,6 +356,13 @@ function writeToObsidian(dateStr, clockIn, clockOut, result) {
     leaveSuffix = ` ｜ 请假 ${totalLeave.toFixed(1)}h（${typeDetail}）`;
   }
   lines.push(`> **出勤 ${sorted.length} 天 ｜ 工时 ${totalWork.toFixed(1)}h ｜ 加班 ${totalOT.toFixed(1)}h（${otDays} 次）${leaveSuffix}**${lateDays > 0 ? ` ｜ 迟到 ${lateDays} 次` : ''}`);
+  if (otDates.length > 0) {
+    const formatted = otDates.map(d => {
+      const [, m, dd] = d.split('-');
+      return `${Number(m)}.${Number(dd)}`;
+    }).join(', ');
+    lines.push(`> 加班日期：${formatted}`);
+  }
   lines.push('');
 
   fs.writeFileSync(filePath, lines.join('\n'));

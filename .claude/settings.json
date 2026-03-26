@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//Users/lvandamon/Documents/Obsidian/CDX/Overtime/**)"
+    ],
+    "additionalDirectories": [
+      "/Users/lvandamon/Documents/Obsidian/CDX/Overtime"
+    ]
+  }
+}
